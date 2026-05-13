@@ -655,14 +655,12 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    logger.info("Bot running with webhook...")
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=TELEGRAM_TOKEN,
-        drop_pending_updates=True,
-        secret_token=None,
-    )
+    health = HTTPServer(("0.0.0.0", PORT), HealthHandler)
+    threading.Thread(target=health.serve_forever, daemon=True).start()
+    logger.info("Health server running on port %s", PORT)
+
+    logger.info("Bot running with polling...")
+    app.run_polling(close_loop=False)
 
 
 if __name__ == "__main__":
@@ -670,3 +668,5 @@ if __name__ == "__main__":
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     main()
+
+
