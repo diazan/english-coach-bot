@@ -29,6 +29,8 @@ DYNAMODB_TABLE = os.getenv("DYNAMODB_TABLE")
 DYNAMODB_ERRORS_TABLE = os.getenv("DYNAMODB_ERRORS_TABLE")
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+PORT        = int(os.getenv("PORT", 8443))
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -637,16 +639,18 @@ def main() -> None:
     app.add_handler(CommandHandler("reporte",     cmd_reporte))
     app.add_handler(CommandHandler("semana",      cmd_semana))
     app.add_handler(CommandHandler("vocabulario", cmd_vocabulario))
+    app.add_handler(CommandHandler("errores",     cmd_errores))
     app.add_handler(CommandHandler("ejercicio",   cmd_ejercicio))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    logger.info("Bot running...")
-    app.run_polling(close_loop=False)
+    logger.info("Bot running with webhook...")
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        webhook_url=f"{WEBHOOK_URL}/{TELEGRAM_TOKEN}",
+    )
 
 
 if __name__ == "__main__":
-    import asyncio
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     main()
