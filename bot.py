@@ -656,7 +656,7 @@ def main() -> None:
 
     logger.info("Bot running with webhook...")
     import time
-    time.sleep(5)
+    time.sleep(15)
     health = HTTPServer(("0.0.0.0", 8080), HealthHandler)
     threading.Thread(target=health.serve_forever, daemon=True).start()
     app.run_webhook(
