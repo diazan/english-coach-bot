@@ -14,6 +14,8 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
 COLOMBIA_TZ = timezone(timedelta(hours=-5))
 
 # ─────────────────────────────────────────
@@ -631,6 +633,14 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 # Main
 # ─────────────────────────────────────────
 
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+    def log_message(self, format, *args):
+        pass
+
 def main() -> None:
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
@@ -647,6 +657,8 @@ def main() -> None:
     logger.info("Bot running with webhook...")
     import time
     time.sleep(5)
+    health = HTTPServer(("0.0.0.0", 8080), HealthHandler)
+    threading.Thread(target=health.serve_forever, daemon=True).start()
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
