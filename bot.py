@@ -32,7 +32,7 @@ DYNAMODB_ERRORS_TABLE = os.getenv("DYNAMODB_ERRORS_TABLE")
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-PORT        = int(os.getenv("PORT", 8443))
+PORT        = int(os.getenv("PORT", 8080))
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -641,6 +641,7 @@ class HealthHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
+
 def main() -> None:
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
@@ -655,10 +656,6 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     logger.info("Bot running with webhook...")
-    import time
-    time.sleep(15)
-    health = HTTPServer(("0.0.0.0", 8080), HealthHandler)
-    threading.Thread(target=health.serve_forever, daemon=True).start()
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
