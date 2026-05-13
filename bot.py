@@ -645,9 +645,12 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     logger.info("Bot running with webhook...")
+    import time
+    time.sleep(5)
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
+        url_path=TELEGRAM_TOKEN,
         webhook_url=f"{WEBHOOK_URL}/{TELEGRAM_TOKEN}",
     )
 
