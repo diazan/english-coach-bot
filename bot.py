@@ -661,6 +661,7 @@ def main() -> None:
         port=PORT,
         url_path=TELEGRAM_TOKEN,
         webhook_url=f"{WEBHOOK_URL}/{TELEGRAM_TOKEN}",
+        drop_pending_updates=True,
     )
 
 
