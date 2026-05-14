@@ -374,7 +374,22 @@ def build_report(sessions: list, period_label: str) -> str:
 
     return "\n".join(lines)
 
-
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(
+        "👋 <b>English Coach Bot</b>\n\n"
+        "Paste your session JSON here and I'll store it.\n\n"
+        "<b>Commands:</b>\n"
+        "/reporte — last 30 days report\n"
+        "/semana — last 7 days report\n"
+        "/errores — top 10 most frequent errors\n"
+        "/errores hoy — today's errors (numbered)\n"
+        "/errores semana — this week's top 10 errors\n"
+        "/vocabulario — words due for review today\n"
+        "/vocabulario stats — weekly vocabulary report\n"
+        "/ejercicio — drill errors due for review today\n"
+        "/ayuda — show this message",
+        parse_mode="HTML",
+    )
 # ─────────────────────────────────────────
 # Command handlers
 # ─────────────────────────────────────────
