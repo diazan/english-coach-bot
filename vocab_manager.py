@@ -519,9 +519,8 @@ def format_word_card(item: dict, show_answer: bool = False) -> str:
     if example:
         lines.append(f"\n💬 _{example}_")
 
-    lines.append(f"\n📊 Reviews: {reps}  |  Next in: {interval}d")
-    if status == "mastered":
-        lines.append("✅ *MASTERED*")
+    status_label = {"pending": "🔵 Pending", "practiced": "🟡 Practicing", "mastered": "✅ Mastered"}.get(status, "")
+    lines.append(f"\n📊 Reviews: {reps}  |  Next in: {interval}d  |  {status_label}")
 
     return "\n".join(lines)
 
