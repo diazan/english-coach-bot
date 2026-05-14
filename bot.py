@@ -14,6 +14,7 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
+from vocab_manager import ingest_from_session, get_due_words, format_word_card, format_stats_message, activate_pending_words
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 COLOMBIA_TZ = timezone(timedelta(hours=-5))
@@ -378,21 +379,32 @@ def build_report(sessions: list, period_label: str) -> str:
 # Command handlers
 # ─────────────────────────────────────────
 
-async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cmd_vocabulario(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    args = " ".join(context.args).strip().lower() if context.args else ""
+
+    if args == "stats":
+        await update.message.reply_text("⏳ Fetching vocabulary stats...")
+        msg = format_stats_message(days=7)
+        await update.message.reply_text(msg, parse_mode="Markdown")
+        return
+
+    await update.message.reply_text("⏳ Fetching vocabulary...")
+    due = get_due_words()
+
+    if not due:
+        await update.message.reply_text(
+            "✅ No words due for review today!\n\n"
+            "Use /vocabulario stats to see your full progress."
+        )
+        return
+
     await update.message.reply_text(
-        "👋 <b>English Coach Bot</b>\n\n"
-        "Paste your session JSON here and I'll store it.\n\n"
-        "<b>Commands:</b>\n"
-        "/reporte — last 30 days report\n"
-        "/semana — last 7 days report\n"
-        "/errores — top 10 most frequent errors\n"
-        "/errores hoy — today's errors (numbered)\n"
-        "/errores semana — this week's top 10 errors\n"
-        "/vocabulario — pending vocabulary words\n"
-        "/ejercicio — drill errors due for review today\n"
-        "/ayuda — show this message",
-        parse_mode="HTML",
+        f"📚 <b>{len(due)} word(s) due for review today:</b>",
+        parse_mode="HTML"
     )
+    for item in due:
+        card = format_word_card(item, show_answer=True)
+        await update.message.reply_text(card, parse_mode="Markdown")
 
 
 async def cmd_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -544,6 +556,12 @@ async def process_session_data(data: dict, update: Update) -> None:
         logger.exception("Error saving to AWS")
         await update.message.reply_text(f"❌ Error saving to AWS: {e(str(ex))}")
         return
+    
+    # Ingest vocabulary suggestions into the spaced repetition table
+    try:
+        ingest_from_session(data)
+    except Exception:
+        logger.warning("vocab ingest failed — non-critical", exc_info=True)
 
     errors     = data.get("errors", [])
     real_errors = errors
@@ -660,6 +678,7 @@ def main() -> None:
     logger.info("Health server running on port %s", PORT)
 
     logger.info("Bot running with polling...")
+    activate_pending_words()  # fill active vocab list on startup
     app.run_polling(close_loop=False)
 
 
