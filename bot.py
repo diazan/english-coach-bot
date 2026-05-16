@@ -587,6 +587,7 @@ async def process_session_data(data: dict, update: Update) -> None:
     except Exception:
         logger.warning("vocab ingest failed — non-critical", exc_info=True)
 
+
     errors      = data.get("errors", [])
     real_errors = errors
     critical    = sum(1 for err in real_errors if err.get("severity") == "critical")
