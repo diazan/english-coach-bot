@@ -14,9 +14,18 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
-from vocab_manager import ingest_from_session, get_due_words, format_word_card, format_stats_message, activate_pending_words
+from vocab_manager import (
+    ingest_from_session,
+    get_due_words,
+    get_active_words,
+    get_pending_words,
+    format_word_card,
+    format_stats_message,
+    activate_pending_words,
+)
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
+
 COLOMBIA_TZ = timezone(timedelta(hours=-5))
 
 # ─────────────────────────────────────────
@@ -25,19 +34,19 @@ COLOMBIA_TZ = timezone(timedelta(hours=-5))
 
 load_dotenv()
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-AWS_REGION     = os.getenv("AWS_REGION")
-S3_BUCKET      = os.getenv("S3_BUCKET")
-DYNAMODB_TABLE = os.getenv("DYNAMODB_TABLE")
+TELEGRAM_TOKEN        = os.getenv("TELEGRAM_TOKEN")
+AWS_REGION            = os.getenv("AWS_REGION")
+S3_BUCKET             = os.getenv("S3_BUCKET")
+DYNAMODB_TABLE        = os.getenv("DYNAMODB_TABLE")
 DYNAMODB_ERRORS_TABLE = os.getenv("DYNAMODB_ERRORS_TABLE")
-AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY_ID")
-AWS_SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-PORT        = int(os.getenv("PORT", 8080))
+AWS_ACCESS_KEY        = os.getenv("AWS_ACCESS_KEY_ID")
+AWS_SECRET_KEY        = os.getenv("AWS_SECRET_ACCESS_KEY")
+WEBHOOK_URL           = os.getenv("WEBHOOK_URL")
+PORT                  = int(os.getenv("PORT", 8080))
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
+    level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
 
@@ -65,7 +74,7 @@ dynamodb = boto3.resource(
     aws_secret_access_key=AWS_SECRET_KEY,
 )
 
-table = dynamodb.Table(DYNAMODB_TABLE)
+table        = dynamodb.Table(DYNAMODB_TABLE)
 errors_table = dynamodb.Table(DYNAMODB_ERRORS_TABLE)
 
 # ─────────────────────────────────────────
@@ -77,7 +86,6 @@ def calculate_overall_score(scores: dict) -> float:
     if total <= 10:
         total = total * 10
 
-    # Amplify penalty for chronic errors (3+ occurrences)
     try:
         today = datetime.now(COLOMBIA_TZ).strftime("%Y-%m-%d")
         since = (datetime.now(COLOMBIA_TZ) - timedelta(days=30)).strftime("%Y-%m-%d")
@@ -85,10 +93,10 @@ def calculate_overall_score(scores: dict) -> float:
             FilterExpression=Attr("occurrences").gte(3) & Attr("last_seen").gte(since)
         )
         chronic = result.get("Items", [])
-        penalty = min(len(chronic) * 1.5, 15)  # max -15 points
+        penalty = min(len(chronic) * 1.5, 15)
         total   = max(0, total - penalty)
     except Exception:
-        pass  # never break scoring if tracker fails
+        pass
 
     return round(total, 1)
 
@@ -119,7 +127,7 @@ def store_session(data: dict) -> None:
     for cat, val in data.get("scores", {}).items():
         item[f"score_{cat}"] = str(val["score"])
 
-    errors = data.get("errors", [])
+    errors     = data.get("errors", [])
     real_errors = errors
     item["errors_critical"]            = sum(1 for err in real_errors if err.get("severity") == "critical")
     item["errors_moderate"]            = sum(1 for err in real_errors if err.get("severity") == "moderate")
@@ -129,6 +137,7 @@ def store_session(data: dict) -> None:
 
     table.put_item(Item=item)
     update_error_tracker(real_errors)
+
 
 def update_error_tracker(errors: list) -> None:
     """Upsert each error into english-coach-errors using SM-2 spaced repetition."""
@@ -140,23 +149,22 @@ def update_error_tracker(errors: list) -> None:
         error_key  = f"{error_type}|{rule}"
 
         try:
-            result = errors_table.get_item(Key={"error_key": error_key})
+            result   = errors_table.get_item(Key={"error_key": error_key})
             existing = result.get("Item")
         except Exception:
             existing = None
 
         if existing:
-            occurrences  = int(existing.get("occurrences", 1)) + 1
-            ease_factor  = float(existing.get("ease_factor", 2.5))
-            interval     = int(existing.get("interval_days", 1))
+            occurrences = int(existing.get("occurrences", 1)) + 1
+            ease_factor = float(existing.get("ease_factor", 2.5))
+            interval    = int(existing.get("interval_days", 1))
 
-            # SM-2: every new occurrence resets interval growth
             if occurrences <= 2:
                 interval = 1
             elif occurrences == 3:
                 interval = 3
             else:
-                interval = round(interval * ease_factor)
+                interval    = round(interval * ease_factor)
                 ease_factor = max(1.3, ease_factor - 0.2)
 
             examples = existing.get("examples", [])
@@ -165,8 +173,7 @@ def update_error_tracker(errors: list) -> None:
                 "correction": err.get("correction", "—"),
                 "date":       today,
             })
-            examples = examples[-3:]  # keep last 3 only
-
+            examples = examples[-3:]
         else:
             occurrences = 1
             ease_factor = 2.5
@@ -182,18 +189,20 @@ def update_error_tracker(errors: list) -> None:
         ).strftime("%Y-%m-%d")
 
         errors_table.put_item(Item={
-            "error_key":    error_key,
-            "error_type":   err.get("type", "unknown"),
-            "rule":         err.get("rule", "unknown"),
-            "severity":     err.get("severity", "minor"),
-            "occurrences":  occurrences,
-            "interval_days": interval,
-            "ease_factor":  str(ease_factor),
-            "last_seen":    today,
-            "next_review":  next_review,
-            "examples":     examples,
+            "error_key":            error_key,
+            "error_type":           err.get("type", "unknown"),
+            "rule":                 err.get("rule", "unknown"),
+            "severity":             err.get("severity", "minor"),
+            "occurrences":          occurrences,
+            "interval_days":        interval,
+            "ease_factor":          str(ease_factor),
+            "last_seen":            today,
+            "next_review":          next_review,
+            "examples":             examples,
             "spanish_interference": err.get("spanish_interference", False),
         })
+
+
 def fetch_due_errors(limit: int = 3) -> list:
     """Return errors due for review today, sorted by occurrences descending."""
     today = datetime.now(COLOMBIA_TZ).strftime("%Y-%m-%d")
@@ -206,6 +215,7 @@ def fetch_due_errors(limit: int = 3) -> list:
         return items[:limit]
     except Exception:
         return []
+
 
 def get_chronic_errors_summary(limit: int = 5) -> str:
     """Return a plain-text summary of top chronic errors for prompt injection."""
@@ -232,8 +242,9 @@ def get_chronic_errors_summary(limit: int = 5) -> str:
         )
     return "\n".join(lines)
 
+
 def fetch_recent_sessions(days: int = 30) -> list:
-    since = (datetime.now(COLOMBIA_TZ) - timedelta(days=days)).strftime("%Y-%m-%d")
+    since  = (datetime.now(COLOMBIA_TZ) - timedelta(days=days)).strftime("%Y-%m-%d")
     result = table.scan(FilterExpression=Attr("date").gte(since))
     items  = result.get("Items", [])
     return sorted(items, key=lambda x: x["date"])
@@ -242,7 +253,7 @@ def fetch_recent_sessions(days: int = 30) -> list:
 def fetch_sessions_for_date(date_str: str) -> list:
     result = table.query(
         IndexName="date-index",
-        KeyConditionExpression=Key("date").eq(date_str)
+        KeyConditionExpression=Key("date").eq(date_str),
     )
     return result.get("Items", [])
 
@@ -265,22 +276,20 @@ def load_errors_from_sessions(sessions: list) -> list:
 
 
 def group_errors_by_rule(errors: list) -> list:
-    """Group errors by rule, count occurrences, keep worst severity."""
     severity_order = {"critical": 0, "moderate": 1, "minor": 2}
     groups = {}
     for err in errors:
         rule = err.get("rule", "unknown")
         if rule not in groups:
             groups[rule] = {
-                "rule":                rule,
-                "count":               0,
-                "severity":            err.get("severity", "minor"),
+                "rule":                 rule,
+                "count":                0,
+                "severity":             err.get("severity", "minor"),
                 "spanish_interference": err.get("spanish_interference", False),
-                "sample_original":     err.get("original", "—"),
-                "sample_correction":   err.get("correction", "—"),
+                "sample_original":      err.get("original", "—"),
+                "sample_correction":    err.get("correction", "—"),
             }
         groups[rule]["count"] += 1
-        # Keep worst severity
         current = severity_order.get(groups[rule]["severity"], 2)
         new     = severity_order.get(err.get("severity", "minor"), 2)
         if new < current:
@@ -288,11 +297,10 @@ def group_errors_by_rule(errors: list) -> list:
             groups[rule]["sample_original"]   = err.get("original", "—")
             groups[rule]["sample_correction"] = err.get("correction", "—")
 
-    sorted_groups = sorted(
+    return sorted(
         groups.values(),
-        key=lambda x: (severity_order.get(x["severity"], 2), -x["count"])
+        key=lambda x: (severity_order.get(x["severity"], 2), -x["count"]),
     )
-    return sorted_groups
 
 
 def format_grouped_errors(grouped: list, title: str) -> str:
@@ -318,7 +326,7 @@ def format_individual_errors(errors: list, title: str, numbered: bool = False) -
         return "No errors recorded. 🎉"
 
     severity_order = {"critical": 0, "moderate": 1, "minor": 2}
-    errors_sorted = sorted(errors, key=lambda x: severity_order.get(x.get("severity", "minor"), 2))
+    errors_sorted  = sorted(errors, key=lambda x: severity_order.get(x.get("severity", "minor"), 2))
 
     lines = [f"🔍 <b>{e(title)}</b>\n"]
     for i, err in enumerate(errors_sorted[:15], 1):
@@ -374,6 +382,11 @@ def build_report(sessions: list, period_label: str) -> str:
 
     return "\n".join(lines)
 
+
+# ─────────────────────────────────────────
+# Command handlers
+# ─────────────────────────────────────────
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "👋 <b>English Coach Bot</b>\n\n"
@@ -390,36 +403,6 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/ayuda — show this message",
         parse_mode="HTML",
     )
-# ─────────────────────────────────────────
-# Command handlers
-# ─────────────────────────────────────────
-
-async def cmd_vocabulario(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    args = " ".join(context.args).strip().lower() if context.args else ""
-
-    if args == "stats":
-        await update.message.reply_text("⏳ Fetching vocabulary stats...")
-        msg = format_stats_message(days=7)
-        await update.message.reply_text(msg, parse_mode="Markdown")
-        return
-
-    await update.message.reply_text("⏳ Fetching vocabulary...")
-    due = get_due_words()
-
-    if not due:
-        await update.message.reply_text(
-            "✅ No words due for review today!\n\n"
-            "Use /vocabulario stats to see your full progress."
-        )
-        return
-
-    await update.message.reply_text(
-        f"📚 <b>{len(due)} word(s) due for review today:</b>",
-        parse_mode="HTML"
-    )
-    for item in due:
-        card = format_word_card(item, show_answer=True)
-        await update.message.reply_text(card, parse_mode="Markdown")
 
 
 async def cmd_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -441,37 +424,63 @@ async def cmd_semana(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 async def cmd_vocabulario(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /vocabulario        — words due for review today (from DynamoDB SM-2 table)
+    /vocabulario stats  — weekly vocabulary report
+    """
+    args = " ".join(context.args).strip().lower() if context.args else ""
+
+    if args == "stats":
+        await update.message.reply_text("⏳ Fetching vocabulary stats...")
+        msg = format_stats_message(days=7)
+        await update.message.reply_text(msg, parse_mode="Markdown")
+        return
+
     await update.message.reply_text("⏳ Fetching vocabulary...")
-    sessions = fetch_recent_sessions(days=60)
 
-    if not sessions:
-        await update.message.reply_text("No sessions found in the last 60 days.")
+    # Ensure pending words are promoted to the active list when slots are free
+    activate_pending_words()
+
+    due    = get_due_words()
+    active = get_active_words()
+
+    # Words being practiced but not due yet today
+    not_due = [w for w in active if w not in due]
+
+    if not due and not active:
+        pending_count = len(get_pending_words())
+        msg = "📭 No active vocabulary words yet."
+        if pending_count:
+            msg += f"\n\n{pending_count} word(s) are pending — they'll be activated automatically."
+        msg += "\n\nUse /vocabulario stats to see full progress."
+        await update.message.reply_text(msg)
         return
 
-    pending_words = []
-    for s in sessions[-10:]:
-        try:
-            obj  = s3.get_object(Bucket=S3_BUCKET, Key=s["s3_key"])
-            data = json.loads(obj["Body"].read())
-            for v in data.get("vocabulary_suggestions", []):
-                if v.get("status") == "pending":
-                    pending_words.append(v)
-        except Exception:
-            continue
-
-    if not pending_words:
-        await update.message.reply_text("No pending vocabulary words. Keep it up! 🎉")
-        return
-
-    lines = ["📚 <b>Pending vocabulary words:</b>\n"]
-    for v in pending_words[:15]:
-        options = ", ".join(f"<code>{e(w)}</code>" for w in v.get("better_options", []))
-        lines.append(
-            f"• Instead of <b>{e(v['word_used'])}</b> → {options}\n"
-            f"  <i>{e(v.get('example', ''))}</i>\n"
+    # ── Words due today ──────────────────────────────────────────────────────
+    if due:
+        await update.message.reply_text(
+            f"🔔 <b>{len(due)} word(s) to review TODAY:</b>",
+            parse_mode="HTML",
         )
+        for item in due:
+            card = format_word_card(item, show_answer=True)
+            await update.message.reply_text(card, parse_mode="Markdown")
+    else:
+        await update.message.reply_text("✅ <b>No words due today — you're all caught up!</b>", parse_mode="HTML")
 
-    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+    # ── Words in progress but not due yet ────────────────────────────────────
+    if not_due:
+        lines = [f"\n📖 <b>{len(not_due)} word(s) in progress (next review coming up):</b>\n"]
+        for w in not_due:
+            word        = w.get("word", w.get("word_key", "?"))
+            next_review = w.get("next_review", "?")
+            reps        = int(w.get("repetitions", 0))
+            interval    = int(w.get("interval", 1))
+            lines.append(
+                f"• <b>{e(word)}</b> — next review: <code>{e(next_review)}</code> "
+                f"(in {interval}d, {reps} rep{'s' if reps != 1 else ''})"
+            )
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
 async def cmd_errores(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -485,17 +494,15 @@ async def cmd_errores(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text("⏳ Analyzing errors...")
 
     if args == "hoy":
-        from datetime import timezone, timedelta
-        today = datetime.now(COLOMBIA_TZ).strftime("%Y-%m-%d")
-        logger.info(f"Buscando sesiones para fecha: {today}")
+        today    = datetime.now(COLOMBIA_TZ).strftime("%Y-%m-%d")
+        logger.info("Buscando sesiones para fecha: %s", today)
         sessions = fetch_sessions_for_date(today)
-        logger.info(f"Sesiones encontradas: {len(sessions)} — items: {sessions}")
+        logger.info("Sesiones encontradas: %d — items: %s", len(sessions), sessions)
         if not sessions:
             await update.message.reply_text("No sessions found for today.")
             return
         errors = load_errors_from_sessions(sessions)
-        
-        msg = format_individual_errors(errors, f"Today's errors ({today})", numbered=True)
+        msg    = format_individual_errors(errors, f"Today's errors ({today})", numbered=True)
 
     elif args == "semana":
         sessions = fetch_recent_sessions(days=7)
@@ -514,14 +521,9 @@ async def cmd_errores(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         errors  = load_errors_from_sessions(sessions)
         grouped = group_errors_by_rule(errors)
         msg     = format_grouped_errors(grouped, "Top errors — last 60 days")
-        
 
     await update.message.reply_text(msg, parse_mode="HTML")
 
-
-# ─────────────────────────────────────────
-# Core: process session
-# ─────────────────────────────────────────
 
 async def cmd_ejercicio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Generate a mini-exercise for errors due for review today."""
@@ -540,10 +542,10 @@ async def cmd_ejercicio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     lines.append("Fix these sentences and reply with your corrections:\n")
 
     for i, err in enumerate(due, 1):
-        examples  = err.get("examples", [])
-        original  = examples[-1]["original"] if examples else "—"
-        times     = int(err.get("occurrences", 1))
-        rule      = err.get("rule", "—")
+        examples = err.get("examples", [])
+        original = examples[-1]["original"] if examples else "—"
+        times    = int(err.get("occurrences", 1))
+        rule     = err.get("rule", "—")
         lines.append(
             f"{i}. <i>{e(original)}</i>\n"
             f"   <b>Rule:</b> {e(rule)} "
@@ -552,6 +554,11 @@ async def cmd_ejercicio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     lines.append("\nReply with your corrected sentences when ready.")
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
+# ─────────────────────────────────────────
+# Core: process session
+# ─────────────────────────────────────────
 
 async def process_session_data(data: dict, update: Update) -> None:
     required = ["session_id", "date", "scores", "overall_score"]
@@ -571,20 +578,22 @@ async def process_session_data(data: dict, update: Update) -> None:
         logger.exception("Error saving to AWS")
         await update.message.reply_text(f"❌ Error saving to AWS: {e(str(ex))}")
         return
-    
+
     # Ingest vocabulary suggestions into the spaced repetition table
     try:
-        ingest_from_session(data)
+        newly_added = ingest_from_session(data)
+        if newly_added:
+            logger.info("Vocab ingested: %s", newly_added)
     except Exception:
         logger.warning("vocab ingest failed — non-critical", exc_info=True)
 
-    errors     = data.get("errors", [])
+    errors      = data.get("errors", [])
     real_errors = errors
-    critical   = sum(1 for err in real_errors if err.get("severity") == "critical")
-    moderate   = sum(1 for err in real_errors if err.get("severity") == "moderate")
-    minor      = sum(1 for err in real_errors if err.get("severity") == "minor")
-    spanish    = sum(1 for err in real_errors if err.get("spanish_interference"))
-    vocab      = len(data.get("vocabulary_suggestions", []))
+    critical    = sum(1 for err in real_errors if err.get("severity") == "critical")
+    moderate    = sum(1 for err in real_errors if err.get("severity") == "moderate")
+    minor       = sum(1 for err in real_errors if err.get("severity") == "minor")
+    spanish     = sum(1 for err in real_errors if err.get("spanish_interference"))
+    vocab       = len(data.get("vocabulary_suggestions", []))
 
     score      = data["overall_score"]
     emoji_icon = "🟢" if score >= 80 else ("🟡" if score >= 65 else "🔴")
@@ -609,6 +618,13 @@ async def process_session_data(data: dict, update: Update) -> None:
 
     await update.message.reply_text(msg, parse_mode="HTML")
 
+    # Hint about vocab if new words were added
+    if vocab > 0:
+        await update.message.reply_text(
+            f"📚 {vocab} new vocabulary word(s) added to your review list.\n"
+            "Use /vocabulario to see what's due for practice.",
+        )
+
 
 # ─────────────────────────────────────────
 # Message handlers
@@ -630,7 +646,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text(
             f"📌 <b>Chronic errors loaded into context:</b>\n\n"
             f"<code>{e(chronic_summary)}</code>",
-            parse_mode="HTML"
+            parse_mode="HTML",
         )
 
     try:
@@ -671,6 +687,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b"OK")
+
     def log_message(self, format, *args):
         pass
 
@@ -678,13 +695,13 @@ class HealthHandler(BaseHTTPRequestHandler):
 def main() -> None:
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    app.add_handler(CommandHandler("start",       cmd_start))
-    app.add_handler(CommandHandler("ayuda",       cmd_ayuda))
-    app.add_handler(CommandHandler("reporte",     cmd_reporte))
-    app.add_handler(CommandHandler("semana",      cmd_semana))
-    app.add_handler(CommandHandler("vocabulario", cmd_vocabulario))
-    app.add_handler(CommandHandler("errores",     cmd_errores))
-    app.add_handler(CommandHandler("ejercicio",   cmd_ejercicio))
+    app.add_handler(CommandHandler("start",        cmd_start))
+    app.add_handler(CommandHandler("ayuda",        cmd_ayuda))
+    app.add_handler(CommandHandler("reporte",      cmd_reporte))
+    app.add_handler(CommandHandler("semana",       cmd_semana))
+    app.add_handler(CommandHandler("vocabulario",  cmd_vocabulario))
+    app.add_handler(CommandHandler("errores",      cmd_errores))
+    app.add_handler(CommandHandler("ejercicio",    cmd_ejercicio))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
@@ -702,5 +719,3 @@ if __name__ == "__main__":
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     main()
-
-
