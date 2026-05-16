@@ -692,6 +692,19 @@ class HealthHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
+def _self_ping(port: int, interval_seconds: int = 840) -> None:
+    """Ping own health endpoint every interval to prevent idle shutdown."""
+    import urllib.request
+    import time
+    time.sleep(30)  # wait for server to be ready
+    while True:
+        try:
+            urllib.request.urlopen(f"http://localhost:{port}/", timeout=10)
+            logger.info("Self-ping OK")
+        except Exception as exc:
+            logger.warning("Self-ping failed: %s", exc)
+        time.sleep(interval_seconds)
+
 
 def main() -> None:
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
@@ -708,6 +721,7 @@ def main() -> None:
 
     health = HTTPServer(("0.0.0.0", PORT), HealthHandler)
     threading.Thread(target=health.serve_forever, daemon=True).start()
+    threading.Thread(target=_self_ping, args=(PORT,), daemon=True).start()
     logger.info("Health server running on port %s", PORT)
 
     logger.info("Bot running with polling...")
