@@ -692,7 +692,7 @@ class HealthHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
-def _self_ping(port: int, interval_seconds: int = 840) -> None:
+def _self_ping(port: int, interval_seconds: int = 240) -> None:
     """Ping own health endpoint every interval to prevent idle shutdown."""
     import urllib.request
     import time
