@@ -277,7 +277,8 @@ def ingest_from_session(session_data: dict) -> list[str]:
             if "word_used" in entry:
                 # Format A: word_used / better_options
                 word_used = entry.get("word_used", "").strip()
-                better    = entry.get("better_options", [])
+                better_option = entry.get("better_option")
+                better = [better_option] if better_option else entry.get("better_options", [])
                 example   = entry.get("example", "").strip()
 
                 if not better:
