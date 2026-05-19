@@ -692,14 +692,14 @@ class HealthHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
-def _self_ping(port: int, interval_seconds: int = 240) -> None:
-    """Ping own health endpoint every interval to prevent idle shutdown."""
+def _self_ping(interval_seconds: int = 300) -> None:
+    """Ping own public URL every interval to prevent idle shutdown."""
     import urllib.request
     import time
     time.sleep(30)  # wait for server to be ready
     while True:
         try:
-            urllib.request.urlopen(f"http://localhost:{port}/", timeout=10)
+            urllib.request.urlopen("https://english-coach-bot-40um.onrender.com", timeout=10)
             logger.info("Self-ping OK")
         except Exception as exc:
             logger.warning("Self-ping failed: %s", exc)
@@ -721,7 +721,7 @@ def main() -> None:
 
     health = HTTPServer(("0.0.0.0", PORT), HealthHandler)
     threading.Thread(target=health.serve_forever, daemon=True).start()
-    threading.Thread(target=_self_ping, args=(PORT,), daemon=True).start()
+    threading.Thread(target=_self_ping, daemon=True).start()
     logger.info("Health server running on port %s", PORT)
 
     logger.info("Bot running with polling...")
